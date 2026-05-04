@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"os"
 	"net/http"
 	"strconv"
 	"sync"
@@ -25,15 +26,22 @@ var (
 func main() {
 	mux := http.NewServeMux()
 
-	// 3. Define Routes (Requires Go 1.22+)
 	mux.HandleFunc("POST /items", createItem)
 	mux.HandleFunc("GET /items", getItems)
 	mux.HandleFunc("GET /items/{id}", getItemByID)
 	mux.HandleFunc("PUT /items/{id}", updateItem)
 	mux.HandleFunc("DELETE /items/{id}", deleteItem)
 
-	log.Println("Server starting on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	// Fetch the PORT from the environment (Render will set this)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Fallback for local development
+	}
+
+	log.Printf("Server starting on port %s", port)
+	
+	// Use the dynamic port here!
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }
