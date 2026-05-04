@@ -1,12 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
-	"os"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
+
+	"github.com/gin-gonic/gin"
 )
 
 // 1. The Struct Model
@@ -24,13 +25,15 @@ var (
 )
 
 func main() {
-	mux := http.NewServeMux()
+	// Initialize Gin router
+	r := gin.Default()
 
-	mux.HandleFunc("POST /items", createItem)
-	mux.HandleFunc("GET /items", getItems)
-	mux.HandleFunc("GET /items/{id}", getItemByID)
-	mux.HandleFunc("PUT /items/{id}", updateItem)
-	mux.HandleFunc("DELETE /items/{id}", deleteItem)
+	// 3. Define Routes using Gin
+	r.POST("/items", createItem)
+	r.GET("/items", getItems)
+	r.GET("/items/:id", getItemByID)
+	r.PUT("/items/:id", updateItem)
+	r.DELETE("/items/:id", deleteItem)
 
 	// Fetch the PORT from the environment (Render will set this)
 	port := os.Getenv("PORT")
@@ -39,9 +42,9 @@ func main() {
 	}
 
 	log.Printf("Server starting on port %s", port)
-	
-	// Use the dynamic port here!
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+
+	// Start the Gin server
+	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }
@@ -51,10 +54,12 @@ func main() {
 // ==========================================
 
 // CREATE
-func createItem(w http.ResponseWriter, r *http.Request) {
+func createItem(c *gin.Context) {
 	var item Item
-	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+
+	// c.ShouldBindJSON automatically parses the request body
+	if err := c.ShouldBindJSON(&item); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -64,13 +69,12 @@ func createItem(w http.ResponseWriter, r *http.Request) {
 	store[item.ID] = item
 	mu.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(item)
+	// c.JSON automatically sets Content-Type to application/json
+	c.JSON(http.StatusCreated, item)
 }
 
 // READ ALL
-func getItems(w http.ResponseWriter, r *http.Request) {
+func getItems(c *gin.Context) {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -79,16 +83,16 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(items)
+	c.JSON(http.StatusOK, items)
 }
 
 // READ ONE
-func getItemByID(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
+func getItemByID(c *gin.Context) {
+	// Gin uses c.Param to extract path variables defined with ":"
+	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
 		return
 	}
 
@@ -97,26 +101,25 @@ func getItemByID(w http.ResponseWriter, r *http.Request) {
 	mu.Unlock()
 
 	if !exists {
-		http.Error(w, "Item not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Item not found"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(item)
+	c.JSON(http.StatusOK, item)
 }
 
 // UPDATE
-func updateItem(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
+func updateItem(c *gin.Context) {
+	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
 		return
 	}
 
 	var updatedData Item
-	if err := json.NewDecoder(r.Body).Decode(&updatedData); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&updatedData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -125,7 +128,7 @@ func updateItem(w http.ResponseWriter, r *http.Request) {
 
 	item, exists := store[id]
 	if !exists {
-		http.Error(w, "Item not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Item not found"})
 		return
 	}
 
@@ -134,16 +137,15 @@ func updateItem(w http.ResponseWriter, r *http.Request) {
 	item.Price = updatedData.Price
 	store[id] = item
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(item)
+	c.JSON(http.StatusOK, item)
 }
 
 // DELETE
-func deleteItem(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
+func deleteItem(c *gin.Context) {
+	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
 		return
 	}
 
@@ -151,11 +153,15 @@ func deleteItem(w http.ResponseWriter, r *http.Request) {
 	defer mu.Unlock()
 
 	if _, exists := store[id]; !exists {
-		http.Error(w, "Item not found", http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Item not found"})
 		return
 	}
 
 	delete(store, id)
 
-	w.WriteHeader(http.StatusNoContent)
+	// Added message after deletion!
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Item deleted successfully",
+	})
 }
